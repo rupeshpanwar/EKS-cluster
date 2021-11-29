@@ -194,3 +194,29 @@ helm install nginx bitnami/nginx
 ```
 
 
+Upgdate
+```bash
+# upgrade after changing values in yaml
+helm upgrade nginx bitnami/nginx --dry-run
+
+# upgrade using values in overrides.yaml
+helm upgrade nignx bitnami/nginx -f overrides.yaml
+
+# rollback
+helm rollback nginx REVISION_NUMBER
+```
+
+Other commands
+```bash
+helm list 
+helm status nginx
+helm history nginx
+
+# get manifest and values from deployment
+helm get manifest nginx
+helm get values nginx
+
+helm uninstall nginx
+```
+
+
