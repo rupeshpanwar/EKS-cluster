@@ -122,7 +122,7 @@ aws eks describe-cluster --name eks-from-eksctl --region ap-southeast-1
 
 ```bash
 # get info about cluster resources
-aws eks describe-cluster --name eks-from-eksctl --region us-west-2
+aws eks describe-cluster --name eks-from-eksctl --region ap-southeast-1
 ```
 
 # 3. Helm Chart Quick Intro
@@ -218,5 +218,82 @@ helm get values nginx
 
 helm uninstall nginx
 ```
+# 4. Deploy Kuberenetes Dashboard
+# 4.1 Required setup 1: Install Metrics Server first so Dashboard can poll metrics
+```
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.3.6/components.yaml
+```
+
+Get token (kinda like password) for dashboard
+```
+kubectl describe secret $(k get secret -n kubernetes-dashboard | grep kubernetes-dashboard-token | awk '{ print $1 }') -n kubernetes-dashboard
+```
+
+Create a secure channel from local to API server in Kubernetes cluster
+```
+kubectl proxy
+
+# access this url from browser
+http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/
+```
+
+# 4.3 Required setup 3: Create RBAC to control what metrics can be visible
+
+[eks-admin-service-account.yaml](eks-admin-service-account.yaml)
+```
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: eks-admin
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: eks-admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin # this is the cluster admin role
+subjects:
+- kind: ServiceAccount
+  name: eks-admin
+  namespace: kube-system
+```
+
+Apply
+```
+kubectl apply -f eks-admin-service-account.yaml
+```
+
+Check it created in `kube-system` namespace
+```
+kubectl get serviceaccount -n kube-system | grep eks-admin
+eks-admin                            1         52s
+```
+
+Get a token from the `eks-admin` serviceaccount
+```
+kubectl -n kube-system describe secret $(kubectl -n kube-system get secret | grep eks-admin | awk '{print $1}')
+```
+
+Create a secure channel from local to API server in Kubernetes cluster
+```
+kubectl proxy
+
+# access this url from browser
+http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/
+```
+# 4.4 K8s Dashboard Walkthrough
+
+
+## Uninstall Dashboard
+```
+kubectl delete -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-beta8/aio/deploy/recommended.yaml
+
+kubectl delete -f eks-admin-service-account.yaml
+```
+
+
 
 
