@@ -293,7 +293,60 @@ kubectl delete -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-
 
 kubectl delete -f eks-admin-service-account.yaml
 ```
+# 5. Deploy Sample App to EKS
 
+Refs: 
+- https://github.com/kubernetes/examples/blob/master/guestbook-go/README.md
+
+Sample application deployment
+<img width="732" alt="image" src="https://user-images.githubusercontent.com/75510135/143998273-1d8f1bea-a987-4f9b-a2ae-07cdbd634646.png">
+
+
+# 5.1 Deploy Redis Master
+```
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/examples/master/guestbook-go/redis-master-controller.json
+
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/examples/master/guestbook-go/redis-master-service.json
+```
+
+
+# 5.2 Deploy Redis Slave
+```
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/examples/master/guestbook-go/redis-slave-controller.json
+
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/examples/master/guestbook-go/redis-slave-service.json
+```
+
+# 5.3 Deploy frontend app
+```
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/examples/master/guestbook-go/guestbook-controller.json
+
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/examples/master/guestbook-go/guestbook-service.json
+```
+
+Show `replicationcontroller` (which is deprecated k8s resource succeeded by `replicaset` now)created
+```
+kubectl get replicationcontroller
+```
+
+Get service and pod
+```
+kubectl get pod,service
+```
+
+
+# 5.4 Get external ELB DNS
+```
+$ echo $(kubectl  get svc guestbook | awk '{ print $4 }' | tail -1):$(kubectl  get svc guestbook | awk '{ print $5 }' | tail -1 | cut -d ":" -f 1
+3000)
+
+Visit it from browser __after 3-5 minutes when ELB is ready__
+
+
+#### How to Uninstall all the resources (don't do it yet, as we will expose these pods with Ingress in the next chapter)
+```
+kubectl delete -f examples/guestbook-go
+```
 
 
 
