@@ -236,4 +236,96 @@ service:
       http: 80
       https: 443  # <--- this means incoming HTTPs to ELB will be sent to backend (Nginx Ingress Controller) 443
 ```
+# 6.5 (BEST PRACTICE) Enable ELB access logs by K8s service annotations
+Creating AWS ELB from K8s ingress controller isn't enough for production.
+
+You need to enable access logs of ELB.
+
+
+1. Create S3 bucket for ELB to send access logs to
+```bash
+# from S3 console, create this bucket
+aws s3 mb s3://eks-from-eksctl-elb-access-log-0212
+```
+2. Create S3 bucket policy so that ELB can push it to the bucket
+Ref: https://docs.aws.amazon.com/elasticloadbalancing/latest/classic/enable-access-logs.html
+
+Given this template [s3_bucket_policy_elb_access_log.json](s3_bucket_policy_elb_access_log.json),
+you need to interpolate `elb-account-id` based on your region, `your-aws-account-id`, `bucket-name`, and `prefix`.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::elb-account-id:root"
+      },
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::bucket-name/prefix/AWSLogs/your-aws-account-id/*"
+    },
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "delivery.logs.amazonaws.com"
+      },
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::bucket-name/prefix/AWSLogs/your-aws-account-id/*",
+      "Condition": {
+        "StringEquals": {
+          "s3:x-amz-acl": "bucket-owner-full-control"
+        }
+      }
+    },
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "delivery.logs.amazonaws.com"
+      },
+      "Action": "s3:GetBucketAcl",
+      "Resource": "arn:aws:s3:::bucket-name"
+    }
+  ]
+}
+```
+
+
+3. Add k8s service annotations to `nginx-ingress-controller` service so it knows access log bucket
+Ref: https://kubernetes.io/docs/concepts/services-networking/service/#elb-access-logs-on-aws
+
+These annotations need to be added to `nginx-ingress-controller` service
+```yaml
+metadata:
+      name: my-service
+      annotations:
+        service.beta.kubernetes.io/aws-load-balancer-access-log-enabled: "true"
+        # Specifies whether access logs are enabled for the load balancer
+        service.beta.kubernetes.io/aws-load-balancer-access-log-emit-interval: "60"
+        # The interval for publishing the access logs. You can specify an interval of either 5 or 60 (minutes).
+        service.beta.kubernetes.io/aws-load-balancer-access-log-s3-bucket-name: "my-bucket"
+        # The name of the Amazon S3 bucket where the access logs are stored
+        service.beta.kubernetes.io/aws-load-balancer-access-log-s3-bucket-prefix: "my-bucket-prefix/prod"
+        # The logical hierarchy you created for your Amazon S3 bucket, for example `my-bucket-prefix/prod`
+```
+
+
+To add this, add above to `nginx_helm_chart_overrides_access_logs.yaml` which will be passed when installing `nginx` helm chart.
+
+[nginx_helm_chart_overrides_access_logs.yaml](nginx_helm_chart_overrides_access_logs.yaml)
+
+4. Upgrade Nginx ingress controller specifying overriding yaml file with `-f` option (ideally in production, you would add service annotations before first install)
+
+```sh
+# upgrade it with -f nginx_helm_chart_overrides_access_logs.yaml
+helm upgrade nginx-ingress-controller \
+    stable/nginx-ingress \
+    -f nginx_helm_chart_overrides_access_logs.yaml \
+    -n nginx-ingress-controller 
+
+```
+<img width="894" alt="image" src="https://user-images.githubusercontent.com/75510135/144390812-ee663caf-28d9-477e-b507-e7a4788d779b.png">
+
+<img width="656" alt="image" src="https://user-images.githubusercontent.com/75510135/144390865-1b043932-bbf2-46a4-baf3-21a5aecf5ef7.png">
+
 
