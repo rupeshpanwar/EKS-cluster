@@ -126,9 +126,114 @@ kubectl  get svc nginx-ingress-controller-controller -n nginx-ingress-controller
 4. Now you can create multiple services and bind them to one ingress controller (one AWS ELB)
 
 
+# 6.4 (BEST PRACTICE) Enable HTTPS for AWS ELB (SSL Termination at ELB)
+If you visit the public DNS of ELB with https, you will see a fake Nginx certificate
+
+This is the default cert configured in `/etc/nginx/nginx.conf` inside `nginx-ingress-controller-controller` pod
+```sh
+# ssh into the pod
+kubectl exec -it nginx-ingress-controller-controller-767d5fd45d-q7cpw -n nginx-ingress-controller sh
+
+# grep for "ssl"
+$ grep -r "ssl" *.conf
+
+nginx.conf:                     is_ssl_passthrough_enabled = false,
+nginx.conf:             listen_ports = { ssl_proxy = "442", https = "443" },
+nginx.conf:     ssl_certificate     /etc/ingress-controller/ssl/default-fake-certificate.pem; # <-- here fake cert
+nginx.conf:     ssl_certificate_key /etc/ingress-controller/ssl/default-fake-certificate.pem;
+```
+
+This is the case 2 [SSL terminates at Nginx Ingress Controller pod]
+
+To achieve SSL termination at AWS ELB (case 1 in the diagram), you need to provision SSL cert and associate it with ELB.
 
 
+## 1. Create Self-signed Server Certificate (1024 or 2048 bit long)
+
+Refs: 
+- https://kubernetes.github.io/ingress-nginx/user-guide/tls/#tls-secrets
+- https://kubernetes.github.io/ingress-nginx/user-guide/tls/#tls-secretshttps://stackoverflow.com/questions/10175812/how-to-create-a-self-signed-certificate-with-openssl
+
+Since we don't own any domains for this course, we need to create a self-signed cert by ourselves.
+```
+openssl req \
+        -x509 \
+        -newkey rsa:2048 \
+        -keyout elb.amazonaws.com.key.pem \
+        -out elb.amazonaws.com.cert.pem \
+        -days 365 \
+        -nodes \
+        -subj '/CN=*.elb.amazonaws.com'
+ ```       
+
+Check contents of cert
+```sh
+openssl x509 -in elb.amazonaws.com.cert.pem -text -noout
+```
+## 2. Import Server Certificate to ACM (Amazon Certificate Manager)
+Ref: https://docs.aws.amazon.com/acm/latest/userguide/import-certificate-api-cli.html
+
+```bash
+aws acm import-certificate \
+  --certificate fileb://elb.amazonaws.com.cert.pem \
+  --private-key fileb://elb.amazonaws.com.key.pem \
+  --region ap-southeast-1
+```
+
+You can see the new cert in AWS ACM console.
 
 
+## 3. Add AWS ACM ARN to Nginx ingress controller's service annotations in overrides.yaml
+Refs:
+- https://kubernetes.io/docs/concepts/services-networking/service/#ssl-support-on-aws
+- https://github.com/helm/charts/tree/master/stable/nginx-ingress
 
+Edit and replace `YOUR_CERT_ARN` with your cert ARN in [nginx_helm_chart_overrides_ssl_termination_at_elb.yaml](nginx_helm_chart_overrides_ssl_termination_at_elb.yaml)
+
+```yaml
+controller:
+  service:
+    annotations:
+      # https for AWS ELB. Ref: https://kubernetes.io/docs/concepts/services-networking/service/#ssl-support-on-aws
+      service.beta.kubernetes.io/aws-load-balancer-ssl-cert: "YOUR_CERT_ARN"
+      service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "tcp" # backend pod doesn't speak HTTPS
+      service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "443" # unless ports specified, even port 80 will be SSL provided
+    targetPorts:
+      https: http # TSL Terminates at the ELB
+  config:
+    ssl-redirect: "false" # don't let https to AWS ELB -> http to Nginx redirect to -> https to Nginx
+```
+
+## 4. Upgrade Nginx ingress controller Helm chart
+```bash
+helm upgrade nginx-ingress-controller \
+    stable/nginx-ingress \
+    -n nginx-ingress-controller \
+    -f nginx_helm_chart_overrides_ssl_termination_at_elb.yaml
+```
+
+Check `nginx-ingress-controller-controller` service in `nginx-ingress-controller` namespace have annotation added
+```sh
+kubectl describe svc nginx-ingress-controller-controller -n nginx-ingress-controller
+```
+Visit the public DNS of ELB again from browser
+```bash
+# visit the URL from browser
+kubectl  get svc nginx-ingress-controller-controller -n nginx-ingress-controller | awk '{ print $4 }' | tail -1
+
+```
+## 5. How to Fix "400 Bad Request. The plain HTTP request was sent to HTTPS port"
+
+Same if you curl 
+```bash
+curl https://a04081d9fc1494d16a1c94d1d4a3759a-430198622.ap-southeast-1.elb.amazonaws.com/ -v -k
+```
+This is because by default, Nginx Ingress Controller's _service_ definition has `controller.service.targetPorts.https=443` or in yaml format (https://github.com/helm/charts/tree/master/stable/nginx-ingress),
+
+```sh
+service:
+    targetPorts:
+      http: 80
+      https: 443  # <--- this means incoming HTTPs to ELB will be sent to backend (Nginx Ingress Controller) 443
+```
 
