@@ -349,4 +349,15 @@ kubectl delete -f examples/guestbook-go
 ```
 
 
+- Logging
+<img width="754" alt="image" src="https://user-images.githubusercontent.com/75510135/144585295-a2056c87-2c7a-4329-b431-e44c4ca73b58.png">
+
+<img width="771" alt="image" src="https://user-images.githubusercontent.com/75510135/144585652-25a9f992-f4c9-4a71-b6f7-2d06d5916774.png">
+
+# 9.2 Check Logs in CloudWatch Log
+You should see a log entry from `aws-iam-authenticator` in CloudWatch Log
+```log
+2020-06-14T14:12:39.465+07:00
+time="2020-06-14T07:12:39Z" level=info msg="STS response" accesskeyid=xxxxxxxx accountid=xxxxxxxxx arn="arn:aws:sts::xxxxxxxxx:assumed-role/SOME_ROLE/1592118757435271000" client="127.0.0.1:44818" method=POST path=/authenticate session=1592118757435271000 userid=xxxxxxx
+```
 
